@@ -69,14 +69,24 @@ export function buildSpotifyAuthUrl(state: string, request?: NextRequest) {
   return `${SPOTIFY_AUTH_URL}?${params.toString()}`;
 }
 
+function cookieOptions() {
+  const appUrl = process.env.APP_URL ?? process.env.NEXT_PUBLIC_APP_URL ?? "";
+  const secure =
+    process.env.NODE_ENV === "production" || appUrl.startsWith("https://");
+
+  return {
+    httpOnly: true,
+    secure,
+    sameSite: "lax" as const,
+    path: "/",
+  };
+}
+
 export async function setOAuthState(state: string) {
   const jar = await cookies();
   jar.set(COOKIE_STATE, state, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
+    ...cookieOptions(),
     maxAge: 600,
-    path: "/",
   });
 }
 
@@ -138,25 +148,20 @@ async function refreshAccessToken(refreshToken: string) {
 async function persistTokens(tokens: TokenResponse) {
   const jar = await cookies();
   const expiresAt = Date.now() + tokens.expires_in * 1000;
-  const cookieOptions = {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax" as const,
-    path: "/",
-  };
+  const options = cookieOptions();
 
   jar.set(COOKIE_ACCESS, tokens.access_token, {
-    ...cookieOptions,
+    ...options,
     maxAge: tokens.expires_in,
   });
   jar.set(COOKIE_EXPIRES, String(expiresAt), {
-    ...cookieOptions,
-    maxAge: tokens.expires_in,
+    ...options,
+    maxAge: 60 * 60 * 24 * 30,
   });
 
   if (tokens.refresh_token) {
     jar.set(COOKIE_REFRESH, tokens.refresh_token, {
-      ...cookieOptions,
+      ...options,
       maxAge: 60 * 60 * 24 * 30,
     });
   }
@@ -187,6 +192,14 @@ export async function getSpotifyAccessToken(): Promise<string | null> {
 }
 
 export async function getSpotifySessionStatus() {
+  const jar = await cookies();
+  const refresh = jar.get(COOKIE_REFRESH)?.value;
+  const access = jar.get(COOKIE_ACCESS)?.value;
+
+  if (!refresh && !access) {
+    return { connected: false as const };
+  }
+
   const token = await getSpotifyAccessToken();
   if (!token) {
     return { connected: false as const };
@@ -199,7 +212,9 @@ export async function getSpotifySessionStatus() {
       displayName: user.display_name ?? user.id,
     };
   } catch {
-    await clearSpotifySession();
+    if (refresh || access) {
+      return { connected: true as const, displayName: null };
+    }
     return { connected: false as const };
   }
 }

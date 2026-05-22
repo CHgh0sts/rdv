@@ -64,6 +64,7 @@ export default function AdminPage() {
   >([]);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [copiedLink, setCopiedLink] = useState(false);
   const [spotifyConnected, setSpotifyConnected] = useState(false);
   const [spotifyName, setSpotifyName] = useState<string | null>(null);
   const [spotifyLoading, setSpotifyLoading] = useState(true);
@@ -91,21 +92,25 @@ export default function AdminPage() {
   }, []);
 
   const loadSpotifyStatus = useCallback(() => {
-    fetch("/api/spotify/status")
+    return fetch("/api/spotify/status", { credentials: "same-origin" })
       .then(async (res) => res.json())
       .then((json) => {
         setSpotifyConnected(Boolean(json.connected));
         setSpotifyName(json.displayName ?? null);
+        return Boolean(json.connected);
       })
       .finally(() => setSpotifyLoading(false));
   }, []);
 
   const loadPlaylistLink = useCallback(() => {
-    fetch("/api/spotify/playlist-link")
+    return fetch("/api/spotify/playlist-link", { credentials: "same-origin" })
       .then(async (res) => res.json())
       .then((json) => {
         setLinkedPlaylist(json.linked ?? null);
         setUserPlaylists(json.userPlaylists ?? []);
+        if (json.linked?.url) {
+          setSpotifyPlaylistUrl(json.linked.url);
+        }
       })
       .catch(() => {
         setLinkedPlaylist(null);
@@ -124,13 +129,28 @@ export default function AdminPage() {
     const spotifyError = searchParams.get("spotify_error");
     if (connected === "connected") {
       setSpotifyMessage("Compte Spotify connecté avec succès.");
-      loadSpotifyStatus();
-      loadPlaylistLink();
+      const retry = async () => {
+        for (let i = 0; i < 3; i += 1) {
+          const ok = await loadSpotifyStatus();
+          await loadPlaylistLink();
+          if (ok) break;
+          await new Promise((r) => setTimeout(r, 400));
+        }
+      };
+      retry();
     }
     if (spotifyError) {
       setSpotifyMessage(decodeURIComponent(spotifyError));
     }
   }, [searchParams, loadSpotifyStatus, loadPlaylistLink]);
+
+  async function copyLinkedPlaylistUrl() {
+    const url = linkedPlaylist?.url ?? spotifyPlaylistUrl;
+    if (!url) return;
+    await navigator.clipboard.writeText(url);
+    setCopiedLink(true);
+    setTimeout(() => setCopiedLink(false), 2000);
+  }
 
   async function linkPlaylist(playlistIdOrUrl: string) {
     setLinkingPlaylist(true);
@@ -192,6 +212,13 @@ export default function AdminPage() {
 
       setSpotifyPlaylistUrl(json.url);
       setSpotifyTracks(json.tracks ?? []);
+      if (json.linked && json.url) {
+        setLinkedPlaylist((prev) =>
+          prev
+            ? { ...prev, url: json.url }
+            : { id: "", name: "Playlist liée", url: json.url },
+        );
+      }
       const skipped = json.skippedCount ?? 0;
       const added = json.trackCount ?? 0;
       if (json.linked) {
@@ -258,29 +285,22 @@ export default function AdminPage() {
 
       <section className="mt-10 rounded-3xl border-2 border-brand/25 bg-brand-muted p-8">
         <div className="flex flex-wrap items-start justify-between gap-4">
-          <div>
+          <div className="space-y-2">
             <p className="text-xs font-semibold uppercase tracking-wide text-brand">
-              Playlist Spotify
+              Étape 1 · Spotify
             </p>
-            <h2 className="mt-1 text-xl font-semibold">
-              Connecter Spotify &amp; alimenter la playlist
-            </h2>
-            <p className="mt-2 text-sm text-muted">
-              Liez une playlist existante : chaque sync ajoute les nouveaux
-              morceaux dedans, sans doublons.
-            </p>
-            {!spotifyLoading && spotifyConnected && spotifyName && (
-              <p className="mt-2 text-sm text-brand">
-                Connecté en tant que {spotifyName}
+            <h2 className="text-xl font-semibold">Connecter votre compte</h2>
+            {!spotifyLoading && spotifyConnected ? (
+              <p className="text-sm text-brand">
+                Connecté{spotifyName ? ` en tant que ${spotifyName}` : ""}.
               </p>
-            )}
-            {aggregate.participantCount === 0 && (
-              <p className="mt-2 text-sm text-brand">
-                En attente de réponses au quiz — au moins 1 participant requis.
+            ) : (
+              <p className="text-sm text-muted">
+                Connectez-vous pour lier une playlist et y ajouter des morceaux.
               </p>
             )}
             {spotifyMessage && (
-              <p className="mt-3 rounded-xl bg-surface px-4 py-2 text-sm text-foreground">
+              <p className="rounded-xl bg-surface px-4 py-2 text-sm text-foreground">
                 {spotifyMessage}
               </p>
             )}
@@ -299,8 +319,8 @@ export default function AdminPage() {
                   {creatingPlaylist
                     ? "Ajout en cours…"
                     : linkedPlaylist
-                      ? "Ajouter à la playlist liée"
-                      : "Créer la playlist Spotify"}
+                      ? "Ajouter les morceaux du quiz"
+                      : "Créer une playlist"}
                 </Button>
                 <Button variant="secondary" onClick={disconnectSpotify}>
                   Déconnecter
@@ -310,88 +330,124 @@ export default function AdminPage() {
           </div>
         </div>
 
-        {spotifyConnected && (
-          <div className="mt-6 rounded-2xl border border-border bg-surface p-5 space-y-4">
-            <div>
-              <p className="text-sm font-medium">Playlist liée</p>
-              {linkedPlaylist ? (
-                <div className="mt-2 flex flex-wrap items-center gap-3">
-                  <a
-                    href={linkedPlaylist.url ?? "#"}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-sm text-brand hover:underline"
-                  >
-                    {linkedPlaylist.name ?? linkedPlaylist.id}
-                  </a>
-                  <Button variant="secondary" onClick={unlinkPlaylist}>
-                    Délier
-                  </Button>
-                </div>
-              ) : (
-                <p className="mt-2 text-sm text-muted">
-                  Aucune playlist liée — une nouvelle sera créée à chaque sync.
-                </p>
-              )}
-            </div>
-
-            <div className="flex flex-wrap gap-2">
-              <input
-                value={playlistInput}
-                onChange={(e) => setPlaylistInput(e.target.value)}
-                placeholder="Coller l'URL Spotify open.spotify.com/playlist/…"
-                className="min-w-[260px] flex-1 rounded-xl border border-border px-4 py-2.5 text-sm outline-none focus:border-brand"
-              />
-              <Button
-                variant="secondary"
-                disabled={!playlistInput.trim() || linkingPlaylist}
-                onClick={() => linkPlaylist(playlistInput)}
-              >
-                {linkingPlaylist ? "Liaison…" : "Lier cette playlist"}
-              </Button>
-            </div>
-
-            {userPlaylists.length > 0 && (
-              <div>
-                <p className="mb-2 text-xs text-muted">Ou choisir parmi vos playlists :</p>
-                <div className="grid gap-2 sm:grid-cols-2">
-                  {userPlaylists.slice(0, 8).map((pl) => (
-                    <button
-                      key={pl.id}
-                      type="button"
-                      onClick={() => linkPlaylist(pl.id)}
-                      disabled={linkingPlaylist}
-                      className={`rounded-xl border px-3 py-2 text-left text-sm transition hover:border-brand ${
-                        linkedPlaylist?.id === pl.id
-                          ? "border-brand bg-brand-muted"
-                          : "border-border"
-                      }`}
-                    >
-                      <span className="font-medium">{pl.name}</span>
-                      <span className="mt-1 block text-xs text-muted">
-                        {pl.trackCount} morceaux
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
+        <div className="mt-8 rounded-2xl border border-border bg-surface p-5 space-y-5">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wide text-brand">
+              Étape 2 · Lier une playlist
+            </p>
+            <p className="mt-1 text-sm text-muted">
+              Collez l&apos;URL ou choisissez une playlist ci-dessous. Les nouveaux
+              morceaux s&apos;y ajoutent automatiquement.
+            </p>
           </div>
+
+          {linkedPlaylist ? (
+            <div className="rounded-xl border border-brand/20 bg-brand-muted p-4">
+              <p className="text-sm font-medium">Playlist liée</p>
+              <p className="mt-1 text-sm">{linkedPlaylist.name ?? "Sans titre"}</p>
+              {linkedPlaylist.url && (
+                <p className="mt-1 break-all text-xs text-muted">{linkedPlaylist.url}</p>
+              )}
+              <div className="mt-3 flex flex-wrap gap-2">
+                {linkedPlaylist.url && (
+                  <>
+                    <a href={linkedPlaylist.url} target="_blank" rel="noopener noreferrer">
+                      <Button variant="secondary">Ouvrir sur Spotify</Button>
+                    </a>
+                    <Button variant="secondary" onClick={copyLinkedPlaylistUrl}>
+                      {copiedLink ? "Lien copié !" : "Copier le lien"}
+                    </Button>
+                  </>
+                )}
+                <Button variant="secondary" onClick={unlinkPlaylist}>
+                  Délier
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <p className="text-sm text-muted">
+              Aucune playlist liée pour le moment.
+            </p>
+          )}
+
+          <div className="flex flex-wrap gap-2">
+            <input
+              value={playlistInput}
+              onChange={(e) => setPlaylistInput(e.target.value)}
+              placeholder="https://open.spotify.com/playlist/…"
+              disabled={!spotifyConnected || linkingPlaylist}
+              className="min-w-[260px] flex-1 rounded-xl border border-border px-4 py-2.5 text-sm outline-none focus:border-brand disabled:opacity-50"
+            />
+            <Button
+              variant="secondary"
+              disabled={!spotifyConnected || !playlistInput.trim() || linkingPlaylist}
+              onClick={() => linkPlaylist(playlistInput)}
+            >
+              {linkingPlaylist ? "Liaison…" : "Lier cette playlist"}
+            </Button>
+          </div>
+
+          {!spotifyConnected && (
+            <p className="text-sm text-brand">
+              Connectez Spotify (étape 1) pour lier ou sélectionner une playlist.
+            </p>
+          )}
+
+          {spotifyConnected && userPlaylists.length === 0 && (
+            <p className="text-sm text-muted">
+              Aucune playlist trouvée sur votre compte — collez l&apos;URL manuellement.
+            </p>
+          )}
+
+          {userPlaylists.length > 0 && (
+            <div>
+              <p className="mb-3 text-sm font-medium">Vos playlists Spotify</p>
+              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                {userPlaylists.map((pl) => (
+                  <button
+                    key={pl.id}
+                    type="button"
+                    onClick={() => linkPlaylist(pl.id)}
+                    disabled={linkingPlaylist || !spotifyConnected}
+                    className={`rounded-xl border px-4 py-3 text-left text-sm transition hover:border-brand disabled:opacity-50 ${
+                      linkedPlaylist?.id === pl.id
+                        ? "border-brand bg-brand-muted"
+                        : "border-border"
+                    }`}
+                  >
+                    <span className="font-medium">{pl.name}</span>
+                    <span className="mt-1 block text-xs text-muted">
+                      {pl.trackCount} morceaux · Cliquer pour lier
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {aggregate.participantCount === 0 && (
+          <p className="mt-4 text-sm text-brand">
+            Au moins 1 réponse au quiz est nécessaire pour ajouter des morceaux.
+          </p>
         )}
 
-        {spotifyPlaylistUrl && (
+        {spotifyPlaylistUrl && !linkedPlaylist && (
           <div className="mt-6 rounded-2xl border border-border bg-surface p-5">
-            <p className="text-sm font-medium">
-              {linkedPlaylist ? "Playlist mise à jour" : "Playlist créée"}
-            </p>
-            <a
-              href={spotifyPlaylistUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="mt-2 inline-block text-sm text-brand hover:underline"
-            >
-              Ouvrir sur Spotify →
-            </a>
+            <p className="text-sm font-medium">Dernière playlist créée</p>
+            <div className="mt-2 flex flex-wrap gap-2">
+              <a
+                href={spotifyPlaylistUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center rounded-full border border-border px-4 py-2 text-sm text-brand hover:border-brand"
+              >
+                Ouvrir sur Spotify →
+              </a>
+              <Button variant="secondary" onClick={copyLinkedPlaylistUrl}>
+                {copiedLink ? "Lien copié !" : "Copier le lien"}
+              </Button>
+            </div>
             {spotifyTracks.length > 0 && (
               <ol className="mt-4 space-y-2">
                 {spotifyTracks.map((track, index) => (
