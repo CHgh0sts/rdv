@@ -14,6 +14,8 @@ import {
 
 type Phase = "intro" | "swipe" | "submitting";
 
+const PREFETCH_TARGET = 14;
+
 export function SwipeQuiz() {
   const router = useRouter();
   const [phase, setPhase] = useState<Phase>("intro");
@@ -30,6 +32,7 @@ export function SwipeQuiz() {
   const [audioReady, setAudioReady] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
   const [audioBlocked, setAudioBlocked] = useState(false);
+  const [prefetchReady, setPrefetchReady] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const loadingRef = useRef(false);
   const audioUnlockedRef = useRef(false);
@@ -50,7 +53,7 @@ export function SwipeQuiz() {
     if (loadingRef.current) return;
     loadingRef.current = true;
     setLoadingTracks(true);
-    setError(null);
+    if (phase === "intro") setError(null);
 
     try {
       const response = await fetch("/api/quiz/tracks", {
@@ -60,7 +63,7 @@ export function SwipeQuiz() {
           seenIds,
           likes,
           dislikes,
-          count: 10,
+          count: phase === "intro" ? 12 : 10,
         }),
       });
 
@@ -75,19 +78,45 @@ export function SwipeQuiz() {
         return [...prev, ...fresh];
       });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Erreur inconnue.");
+      if (phase !== "intro") {
+        setError(err instanceof Error ? err.message : "Erreur inconnue.");
+      }
     } finally {
       setLoadingTracks(false);
       loadingRef.current = false;
     }
-  }, [dislikes, likes, seenIds]);
+  }, [dislikes, likes, phase, seenIds]);
 
   useEffect(() => {
-    if (phase !== "swipe") return;
-    if (queue.length <= 3 && !done && !loadingTracks) {
+    if (phase === "submitting") return;
+
+    const shouldLoad =
+      phase === "intro"
+        ? queue.length < PREFETCH_TARGET
+        : !done && queue.length <= 3;
+
+    if (shouldLoad && !loadingTracks) {
       loadMoreTracks();
     }
   }, [phase, queue.length, done, loadingTracks, loadMoreTracks]);
+
+  useEffect(() => {
+    setPrefetchReady(queue.length >= 6);
+  }, [queue.length]);
+
+  useEffect(() => {
+    for (const track of queue.slice(0, 5)) {
+      if (track.albumArt) {
+        const img = new window.Image();
+        img.src = track.albumArt;
+      }
+      if (track.previewUrl) {
+        const audio = document.createElement("audio");
+        audio.preload = "auto";
+        audio.src = track.previewUrl;
+      }
+    }
+  }, [queue]);
 
   const stopPreview = useCallback(() => {
     const audio = audioRef.current;
@@ -162,10 +191,11 @@ export function SwipeQuiz() {
     }
     setError(null);
     await unlockAudio();
-    setPhase("swipe");
-    setQueue([]);
     setDecisions([]);
-    loadMoreTracks();
+    setPhase("swipe");
+    if (queue.length <= 3) {
+      loadMoreTracks();
+    }
   }
 
   function commitSwipe(direction: "like" | "dislike") {
@@ -256,7 +286,21 @@ export function SwipeQuiz() {
 
         {error && <p className="mt-4 text-sm text-brand">{error}</p>}
 
-        <Button className="mt-8 w-full" onClick={startQuiz}>
+        <div className="mt-6 rounded-xl border border-border bg-surface px-4 py-3 text-sm">
+          {loadingTracks && queue.length === 0 ? (
+            <p className="text-muted">Préparation des morceaux en arrière-plan…</p>
+          ) : prefetchReady ? (
+            <p className="text-brand">
+              {queue.length} morceaux prêts — vous pourrez swiper dès le départ
+            </p>
+          ) : (
+            <p className="text-muted">
+              Chargement en cours… {queue.length > 0 ? `${queue.length} morceau(x) prêt(s)` : ""}
+            </p>
+          )}
+        </div>
+
+        <Button className="mt-8 w-full" onClick={startQuiz} disabled={queue.length === 0}>
           C&apos;est parti →
         </Button>
       </div>
