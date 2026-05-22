@@ -2,43 +2,42 @@
 
 import { useState } from "react";
 import { Button } from "./Button";
+import { MusicAutocomplete } from "./MusicAutocomplete";
 
 type Props = {
   placeholder?: string;
   tags: string[];
   onChange: (tags: string[]) => void;
+  searchType?: "artist" | "track" | "both";
 };
 
 export function TagInput({
   placeholder = "Ajouter…",
   tags,
   onChange,
+  searchType = "artist",
 }: Props) {
   const [input, setInput] = useState("");
 
-  function addTag() {
-    const value = input.trim();
-    if (!value || tags.includes(value)) return;
-    onChange([...tags, value]);
+  function addTag(value = input) {
+    const trimmed = value.trim();
+    if (!trimmed || tags.includes(trimmed)) return;
+    onChange([...tags, trimmed]);
     setInput("");
   }
 
   return (
     <div className="space-y-3">
       <div className="flex gap-2">
-        <input
+        <MusicAutocomplete
           value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") {
-              e.preventDefault();
-              addTag();
-            }
-          }}
+          onChange={setInput}
+          searchType={searchType}
           placeholder={placeholder}
-          className="flex-1 rounded-xl border border-border bg-surface px-4 py-2.5 text-sm outline-none transition focus:border-brand"
+          onSelect={(suggestion) => addTag(suggestion.label)}
+          className="flex-1"
         />
-        <Button type="button" variant="secondary" onClick={addTag}>
+        <Button type="button" variant="secondary" onClick={() => addTag()}>
           Ajouter
         </Button>
       </div>

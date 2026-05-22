@@ -9,6 +9,7 @@ const SPOTIFY_API = "https://api.spotify.com/v1";
 const SCOPES = [
   "playlist-modify-public",
   "playlist-modify-private",
+  "playlist-read-private",
   "user-read-private",
 ].join(" ");
 
@@ -204,7 +205,8 @@ export async function getSpotifySessionStatus() {
 }
 
 async function spotifyFetch<T>(path: string, token: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${SPOTIFY_API}${path}`, {
+  const url = path.startsWith("http") ? path : `${SPOTIFY_API}${path}`;
+  const response = await fetch(url, {
     ...init,
     headers: {
       Authorization: `Bearer ${token}`,
@@ -368,5 +370,233 @@ export async function createSpotifyPlaylist(
     id: playlist.id,
     url: playlist.external_urls.spotify,
     trackCount: trackUris.length,
+  };
+}
+
+let clientCredentialsCache: { token: string; expiresAt: number } | null = null;
+
+export async function getClientCredentialsToken(): Promise<string> {
+  if (
+    clientCredentialsCache &&
+    Date.now() < clientCredentialsCache.expiresAt - 60_000
+  ) {
+    return clientCredentialsCache.token;
+  }
+
+  const { clientId, clientSecret } = getCredentials();
+  const response = await fetch(SPOTIFY_TOKEN_URL, {
+    method: "POST",
+    headers: {
+      Authorization: authHeader(clientId, clientSecret),
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    body: new URLSearchParams({ grant_type: "client_credentials" }),
+  });
+
+  if (!response.ok) {
+    throw new Error("Impossible d'obtenir un token Spotify pour la recherche.");
+  }
+
+  const data = (await response.json()) as TokenResponse;
+  clientCredentialsCache = {
+    token: data.access_token,
+    expiresAt: Date.now() + data.expires_in * 1000,
+  };
+  return data.access_token;
+}
+
+export type MusicSuggestion = {
+  id: string;
+  label: string;
+  subtitle?: string;
+  type: "artist" | "track";
+};
+
+export async function searchMusicSuggestions(
+  query: string,
+  type: "artist" | "track" | "both" = "both",
+  limit = 8,
+): Promise<MusicSuggestion[]> {
+  const trimmed = query.trim();
+  if (trimmed.length < 2) return [];
+
+  const token = await getClientCredentialsToken();
+  const searchType =
+    type === "both" ? "artist,track" : type === "artist" ? "artist" : "track";
+
+  const params = new URLSearchParams({
+    q: trimmed,
+    type: searchType,
+    limit: String(limit),
+    market: "FR",
+  });
+
+  const result = await spotifyFetch<{
+    artists?: { items: { id: string; name: string }[] };
+    tracks?: {
+      items: { id: string; name: string; artists: { name: string }[] }[];
+    };
+  }>(`/search?${params}`, token);
+
+  const suggestions: MusicSuggestion[] = [];
+
+  if (type === "artist" || type === "both") {
+    for (const artist of result.artists?.items ?? []) {
+      suggestions.push({
+        id: artist.id,
+        label: artist.name,
+        type: "artist",
+      });
+    }
+  }
+
+  if (type === "track" || type === "both") {
+    for (const track of result.tracks?.items ?? []) {
+      suggestions.push({
+        id: track.id,
+        label: track.name,
+        subtitle: track.artists.map((a) => a.name).join(", "),
+        type: "track",
+      });
+    }
+  }
+
+  return suggestions.slice(0, limit);
+}
+
+export type SpotifyPlaylistSummary = {
+  id: string;
+  name: string;
+  url: string;
+  trackCount: number;
+  imageUrl?: string;
+};
+
+export async function getUserPlaylists(
+  token: string,
+): Promise<SpotifyPlaylistSummary[]> {
+  const playlists: SpotifyPlaylistSummary[] = [];
+  let path: string | null =
+    "/me/playlists?limit=50&fields=items(id,name,external_urls,tracks.total,images),next";
+
+  type PlaylistPage = {
+    items: {
+      id: string;
+      name: string;
+      external_urls: { spotify: string };
+      tracks: { total: number };
+      images: { url: string }[];
+    }[];
+    next: string | null;
+  };
+
+  while (path) {
+    const page: PlaylistPage = await spotifyFetch<PlaylistPage>(path, token);
+
+    for (const item of page.items) {
+      playlists.push({
+        id: item.id,
+        name: item.name,
+        url: item.external_urls.spotify,
+        trackCount: item.tracks.total,
+        imageUrl: item.images[0]?.url,
+      });
+    }
+
+    path = page.next;
+  }
+
+  return playlists;
+}
+
+export async function getPlaylistById(token: string, playlistId: string) {
+  return spotifyFetch<{
+    id: string;
+    name: string;
+    external_urls: { spotify: string };
+  }>(`/playlists/${playlistId}?fields=id,name,external_urls`, token);
+}
+
+async function getExistingTrackUris(token: string, playlistId: string) {
+  const uris = new Set<string>();
+  let path: string | null =
+    `/playlists/${playlistId}/tracks?limit=100&fields=items(track(uri)),next`;
+
+  type TrackPage = {
+    items: { track: { uri: string | null } | null }[];
+    next: string | null;
+  };
+
+  while (path) {
+    const page: TrackPage = await spotifyFetch<TrackPage>(path, token);
+
+    for (const item of page.items) {
+      if (item.track?.uri) uris.add(item.track.uri);
+    }
+
+    path = page.next;
+  }
+
+  return uris;
+}
+
+export async function addTracksToPlaylist(
+  token: string,
+  playlistId: string,
+  trackUris: string[],
+) {
+  const existing = await getExistingTrackUris(token, playlistId);
+  const newUris = trackUris.filter((uri) => !existing.has(uri));
+
+  if (newUris.length === 0) {
+    const playlist = await getPlaylistById(token, playlistId);
+    return {
+      id: playlist.id,
+      url: playlist.external_urls.spotify,
+      addedCount: 0,
+      skippedCount: trackUris.length,
+    };
+  }
+
+  for (let i = 0; i < newUris.length; i += 100) {
+    const chunk = newUris.slice(i, i + 100);
+    await spotifyFetch(`/playlists/${playlistId}/tracks`, token, {
+      method: "POST",
+      body: JSON.stringify({ uris: chunk }),
+    });
+  }
+
+  const playlist = await getPlaylistById(token, playlistId);
+  return {
+    id: playlist.id,
+    url: playlist.external_urls.spotify,
+    addedCount: newUris.length,
+    skippedCount: trackUris.length - newUris.length,
+  };
+}
+
+export async function pushTracksToGroupPlaylist(
+  token: string,
+  trackUris: string[],
+  linkedPlaylistId: string | null,
+  fallbackName: string,
+  fallbackDescription: string,
+) {
+  if (linkedPlaylistId) {
+    return addTracksToPlaylist(token, linkedPlaylistId, trackUris);
+  }
+
+  const created = await createSpotifyPlaylist(
+    token,
+    fallbackName,
+    fallbackDescription,
+    trackUris,
+  );
+
+  return {
+    id: created.id,
+    url: created.url,
+    addedCount: created.trackCount,
+    skippedCount: 0,
   };
 }

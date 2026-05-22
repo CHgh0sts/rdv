@@ -1,6 +1,7 @@
 "use client";
 
 import { TagInput } from "@/components/ui/TagInput";
+import { MusicAutocomplete } from "@/components/ui/MusicAutocomplete";
 import type { QuizFormData } from "@/lib/quiz-data";
 
 type Props = {
@@ -16,7 +17,7 @@ export function ExtrasStep({ data, onChange }: Props) {
           Quelques détails en plus
         </h2>
         <p className="mt-2 text-sm text-muted">
-          Ces champs sont optionnels mais très utiles pour affiner la playlist du groupe.
+          Ces champs sont optionnels. Les suggestions viennent de Spotify.
         </p>
       </div>
 
@@ -25,18 +26,21 @@ export function ExtrasStep({ data, onChange }: Props) {
         hint="La chanson qui vous représente le mieux"
         value={data.anthemSong}
         onChange={(anthemSong) => onChange({ anthemSong })}
+        searchType="track"
       />
       <Field
         label="Guilty pleasure"
         hint="Ce titre que vous assumez à moitié…"
         value={data.guiltyPleasure}
         onChange={(guiltyPleasure) => onChange({ guiltyPleasure })}
+        searchType="track"
       />
       <Field
         label="Concert de rêve"
         hint="Artiste ou groupe que vous rêveriez de voir live"
         value={data.dreamConcert}
         onChange={(dreamConcert) => onChange({ dreamConcert })}
+        searchType="artist"
       />
 
       <div>
@@ -48,6 +52,7 @@ export function ExtrasStep({ data, onChange }: Props) {
           tags={data.mustHaveArtists}
           onChange={(mustHaveArtists) => onChange({ mustHaveArtists })}
           placeholder="Ex : Stromae"
+          searchType="artist"
         />
       </div>
 
@@ -60,6 +65,7 @@ export function ExtrasStep({ data, onChange }: Props) {
           tags={data.avoidArtists}
           onChange={(avoidArtists) => onChange({ avoidArtists })}
           placeholder="Ex : …"
+          searchType="artist"
         />
       </div>
     </div>
@@ -71,20 +77,22 @@ function Field({
   hint,
   value,
   onChange,
+  searchType = "both",
 }: {
   label: string;
   hint: string;
   value: string;
   onChange: (value: string) => void;
+  searchType?: "artist" | "track" | "both";
 }) {
   return (
     <div>
       <label className="mb-2 block text-sm font-medium">{label}</label>
       <p className="mb-2 text-xs text-muted">{hint}</p>
-      <input
+      <MusicAutocomplete
         value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className="w-full rounded-xl border border-border bg-surface px-4 py-2.5 text-sm outline-none focus:border-brand"
+        onChange={onChange}
+        searchType={searchType}
       />
     </div>
   );

@@ -114,3 +114,11 @@ model LanguagePreference {
   @@unique([responseId, language])
   @@index([language])
 }
+
+model GroupSettings {
+  id                 String   @id @default("default")
+  linkedPlaylistId   String?
+  linkedPlaylistName String?
+  linkedPlaylistUrl  String?
+  updatedAt          DateTime @updatedAt
+}

@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Button } from "@/components/ui/Button";
+import { MusicAutocomplete } from "@/components/ui/MusicAutocomplete";
 import { StarRating } from "@/components/ui/StarRating";
 import type { ArtistItem } from "@/lib/quiz-data";
 
@@ -14,8 +15,8 @@ export function ArtistStep({ artists, onChange }: Props) {
   const [name, setName] = useState("");
   const [importance, setImportance] = useState(4);
 
-  function addArtist() {
-    const trimmed = name.trim();
+  function addArtist(value = name) {
+    const trimmed = value.trim();
     if (!trimmed) return;
     if (artists.some((a) => a.name.toLowerCase() === trimmed.toLowerCase())) {
       return;
@@ -30,29 +31,24 @@ export function ArtistStep({ artists, onChange }: Props) {
       <div>
         <h2 className="text-2xl font-semibold tracking-tight">Vos artistes</h2>
         <p className="mt-2 text-sm text-muted">
-          Ajoutez les artistes ou groupes que vous écoutez le plus. Minimum 2.
+          Commencez à taper — Spotify propose des artistes automatiquement. Minimum 2.
         </p>
       </div>
 
       <div className="rounded-2xl border border-border bg-surface p-5 space-y-4">
-        <input
+        <MusicAutocomplete
           value={name}
-          onChange={(e) => setName(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") {
-              e.preventDefault();
-              addArtist();
-            }
-          }}
+          onChange={setName}
+          searchType="artist"
           placeholder="Ex : Daft Punk, Angèle, Miles Davis…"
-          className="w-full rounded-xl border border-border px-4 py-2.5 text-sm outline-none focus:border-brand"
+          onSelect={(suggestion) => addArtist(suggestion.label)}
         />
         <StarRating
           value={importance}
           onChange={setImportance}
           label="Importance"
         />
-        <Button type="button" onClick={addArtist}>
+        <Button type="button" onClick={() => addArtist()}>
           Ajouter l&apos;artiste
         </Button>
       </div>

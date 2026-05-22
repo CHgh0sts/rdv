@@ -6,8 +6,8 @@ import {
   buildLabelMap,
 } from "@/lib/playlist";
 import {
-  createSpotifyPlaylist,
   getSpotifyAccessToken,
+  pushTracksToGroupPlaylist,
   resolveTracksForPlaylist,
 } from "@/lib/spotify";
 
@@ -20,6 +20,10 @@ export async function POST() {
         { status: 401 },
       );
     }
+
+    const settings = await prisma.groupSettings.findUnique({
+      where: { id: "default" },
+    });
 
     const responses = await prisma.quizResponse.findMany({
       include: {
@@ -63,16 +67,19 @@ export async function POST() {
       .map((g) => g.label)
       .join(", ");
 
-    const playlist = await createSpotifyPlaylist(
+    const result = await pushTracksToGroupPlaylist(
       token,
+      tracks.map((t) => t.uri),
+      settings?.linkedPlaylistId ?? null,
       `SoundMatch · ${aggregate.participantCount} participants`,
       `Playlist collective générée depuis le quiz SoundMatch. Genres dominants : ${topGenres || "mixte"}.`,
-      tracks.map((t) => t.uri),
     );
 
     return NextResponse.json({
-      url: playlist.url,
-      trackCount: playlist.trackCount,
+      url: result.url,
+      trackCount: result.addedCount,
+      skippedCount: result.skippedCount,
+      linked: Boolean(settings?.linkedPlaylistId),
       tracks: tracks.map((t) => ({
         name: t.name,
         artist: t.artist,
@@ -86,7 +93,7 @@ export async function POST() {
         error:
           error instanceof Error
             ? error.message
-            : "Impossible de créer la playlist Spotify.",
+            : "Impossible d'ajouter les morceaux à la playlist.",
       },
       { status: 500 },
     );
