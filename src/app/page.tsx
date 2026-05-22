@@ -1,65 +1,106 @@
-import Image from "next/image";
+import Link from "next/link";
 
-export default function Home() {
+export default function HomePage() {
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
+    <div className="mx-auto max-w-5xl px-6 py-16">
+      <section className="animate-fade-in">
+        <p className="mb-4 inline-flex rounded-full bg-brand-muted px-3 py-1 text-xs font-medium text-brand">
+          Quiz musical · PostgreSQL · Next.js
+        </p>
+        <h1 className="max-w-3xl text-4xl font-semibold tracking-tight sm:text-5xl">
+          Découvrez les goûts musicaux de votre groupe
+        </h1>
+        <p className="mt-6 max-w-2xl text-lg leading-relaxed text-muted">
+          Un questionnaire complet sur les genres, artistes, ambiances et habitudes
+          d&apos;écoute de chacun. Les réponses alimentent un tableau de bord pour
+          générer une playlist collective qui respecte les préférences de tous.
+        </p>
+
+        <div className="mt-10 flex flex-wrap gap-4">
+          <Link
+            href="/quiz"
+            className="inline-flex items-center rounded-full bg-brand px-6 py-3 text-sm font-medium text-white transition hover:bg-brand-light"
           >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
+            Commencer le quiz
+          </Link>
+          <Link
+            href="/admin"
+            className="inline-flex items-center gap-2 rounded-full border-2 border-brand bg-surface px-6 py-3 text-sm font-medium text-brand transition hover:bg-brand hover:text-white"
           >
-            Documentation
-          </a>
+            Admin · Créer la playlist
+          </Link>
         </div>
-      </main>
+      </section>
+
+      <section className="mt-12 rounded-2xl border-2 border-brand/20 bg-brand-muted p-6 sm:p-8">
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wide text-brand">
+              Espace organisateur
+            </p>
+            <h2 className="mt-1 text-lg font-semibold">
+              Synthèse du groupe &amp; playlist Spotify
+            </h2>
+            <p className="mt-2 max-w-xl text-sm text-muted">
+              Accédez au tableau de bord pour voir les goûts de tous les
+              participants et générer la playlist collective en un clic.
+            </p>
+          </div>
+          <Link
+            href="/admin"
+            className="inline-flex shrink-0 items-center rounded-full bg-brand px-6 py-3 text-sm font-medium text-white transition hover:bg-brand-light"
+          >
+            Ouvrir l&apos;admin →
+          </Link>
+        </div>
+      </section>
+
+      <section className="mt-20 grid gap-6 sm:grid-cols-3">
+        {[
+          {
+            title: "10 étapes détaillées",
+            text: "Genres, artistes, époques, ambiances, contextes d'écoute, langues et profil sonore.",
+          },
+          {
+            title: "Données structurées",
+            text: "Chaque réponse est stockée en base PostgreSQL via Prisma pour une agrégation fiable.",
+          },
+          {
+            title: "Playlist collective",
+            text: "Le tableau de bord synthétise les goûts communs et propose des pistes pour votre playlist.",
+          },
+        ].map((item) => (
+          <article
+            key={item.title}
+            className="rounded-2xl border border-border bg-surface p-6 shadow-sm"
+          >
+            <h2 className="text-base font-semibold">{item.title}</h2>
+            <p className="mt-3 text-sm leading-relaxed text-muted">{item.text}</p>
+          </article>
+        ))}
+      </section>
+
+      <section className="mt-20 rounded-2xl border border-brand/15 bg-brand-muted p-8">
+        <h2 className="text-xl font-semibold">Comment ça marche ?</h2>
+        <ol className="mt-6 space-y-4 text-sm leading-relaxed text-muted">
+          <li>
+            <span className="mr-2 font-semibold text-brand">1.</span>
+            Chaque participant remplit le quiz (~8 min).
+          </li>
+          <li>
+            <span className="mr-2 font-semibold text-brand">2.</span>
+            Les réponses sont enregistrées avec des notes et des préférences pondérées.
+          </li>
+          <li>
+            <span className="mr-2 font-semibold text-brand">3.</span>
+            Le tableau de bord agrège les tendances du groupe.
+          </li>
+          <li>
+            <span className="mr-2 font-semibold text-brand">4.</span>
+            Vous obtenez une base solide pour construire votre playlist sur Spotify, Apple Music, etc.
+          </li>
+        </ol>
+      </section>
     </div>
   );
 }

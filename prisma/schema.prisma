@@ -1,0 +1,116 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Participant {
+  id        String        @id @default(cuid())
+  name      String
+  email     String?
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+  response  QuizResponse?
+
+  @@index([createdAt])
+}
+
+model QuizResponse {
+  id              String   @id @default(cuid())
+  participantId   String   @unique
+  participant     Participant @relation(fields: [participantId], references: [id], onDelete: Cascade)
+
+  discoveryScore    Int
+  energyScore       Int
+  lyricFocusScore   Int
+  mainstreamScore   Int
+  vocalPreference   String
+
+  mustHaveArtists   String[]
+  avoidArtists      String[]
+  dreamConcert      String?
+  anthemSong        String?
+  guiltyPleasure    String?
+
+  completedAt DateTime @default(now())
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  genrePreferences    GenrePreference[]
+  decadePreferences   DecadePreference[]
+  moodPreferences     MoodPreference[]
+  contextPreferences  ContextPreference[]
+  artistPreferences   ArtistPreference[]
+  languagePreferences LanguagePreference[]
+
+  @@index([completedAt])
+}
+
+model GenrePreference {
+  id         String       @id @default(cuid())
+  responseId String
+  response   QuizResponse @relation(fields: [responseId], references: [id], onDelete: Cascade)
+  genre      String
+  rating     Int
+
+  @@unique([responseId, genre])
+  @@index([genre])
+}
+
+model DecadePreference {
+  id         String       @id @default(cuid())
+  responseId String
+  response   QuizResponse @relation(fields: [responseId], references: [id], onDelete: Cascade)
+  decade     String
+  rating     Int
+
+  @@unique([responseId, decade])
+  @@index([decade])
+}
+
+model MoodPreference {
+  id         String       @id @default(cuid())
+  responseId String
+  response   QuizResponse @relation(fields: [responseId], references: [id], onDelete: Cascade)
+  mood       String
+  rating     Int
+
+  @@unique([responseId, mood])
+  @@index([mood])
+}
+
+model ContextPreference {
+  id         String       @id @default(cuid())
+  responseId String
+  response   QuizResponse @relation(fields: [responseId], references: [id], onDelete: Cascade)
+  context    String
+  rating     Int
+
+  @@unique([responseId, context])
+  @@index([context])
+}
+
+model ArtistPreference {
+  id         String       @id @default(cuid())
+  responseId String
+  response   QuizResponse @relation(fields: [responseId], references: [id], onDelete: Cascade)
+  artistName String
+  importance Int
+
+  @@index([artistName])
+  @@index([responseId])
+}
+
+model LanguagePreference {
+  id         String       @id @default(cuid())
+  responseId String
+  response   QuizResponse @relation(fields: [responseId], references: [id], onDelete: Cascade)
+  language   String
+  rating     Int
+
+  @@unique([responseId, language])
+  @@index([language])
+}
