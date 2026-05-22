@@ -737,14 +737,15 @@ export async function lookupSwipeTrack(
   name: string,
   artist: string,
   genres: string[] = ["pop"],
+  market = "FR",
 ): Promise<SwipeTrack | null> {
   const token = await getClientCredentialsToken();
   const primaryArtist = artist.split(",")[0]?.trim() ?? artist;
   const params = new URLSearchParams({
     q: `track:${name} artist:${primaryArtist}`,
     type: "track",
-    limit: "8",
-    market: "FR",
+    limit: "10",
+    market,
   });
 
   const result = await spotifyFetch<{
@@ -755,6 +756,7 @@ export async function lookupSwipeTrack(
   const targetArtist = normalizeForMatch(primaryArtist);
 
   const ranked = result.tracks.items
+    .filter((track) => Boolean(track.preview_url))
     .map((track) => {
       const trackName = normalizeForMatch(track.name);
       const artistNames = track.artists.map((a) => normalizeForMatch(a.name));
@@ -766,52 +768,65 @@ export async function lookupSwipeTrack(
       if (artistNames.some((a) => a === targetArtist || a.includes(targetArtist))) {
         score += 4;
       }
-      if (track.preview_url) score += 2;
       return { track, score };
     })
     .sort((a, b) => b.score - a.score);
 
   const match =
     ranked.find((item) => item.score >= 4)?.track ??
-    ranked.find((item) => item.track.preview_url)?.track ??
     ranked[0]?.track;
 
-  if (!match) return null;
+  if (!match?.preview_url) return null;
 
   return mapRecommendationTrack(match, undefined, genres);
 }
 
+export async function lookupSpotifyTrackById(
+  trackId: string,
+  genres: string[] = ["pop"],
+  market = "FR",
+): Promise<SwipeTrack | null> {
+  const token = await getClientCredentialsToken();
+  const track = await spotifyFetch<SpotifySearchTrack>(
+    `/tracks/${trackId}?market=${market}`,
+    token,
+  );
+
+  if (!track.preview_url) return null;
+  return mapRecommendationTrack(track, undefined, genres);
+}
+
+export async function searchSpotifyPreviewTracks(options: {
+  query: string;
+  limit?: number;
+  market?: string;
+  excludeIds?: Set<string>;
+  genres?: string[];
+}): Promise<SwipeTrack[]> {
+  const token = await getClientCredentialsToken();
+  const params = new URLSearchParams({
+    q: options.query,
+    type: "track",
+    limit: "50",
+    market: options.market ?? "FR",
+  });
+
+  const result = await spotifyFetch<{
+    tracks: { items: SpotifySearchTrack[] };
+  }>(`/search?${params.toString()}`, token);
+
+  const exclude = options.excludeIds ?? new Set<string>();
+  const genres = options.genres ?? ["pop"];
+
+  return result.tracks.items
+    .filter((track) => track.preview_url && !exclude.has(track.id))
+    .slice(0, options.limit ?? 20)
+    .map((track) => mapRecommendationTrack(track, undefined, genres));
+}
+
 export async function enrichSwipeTracks(tracks: SwipeTrack[]): Promise<SwipeTrack[]> {
-  const enriched: SwipeTrack[] = [];
-
-  for (const track of tracks) {
-    if (track.previewUrl && track.albumArt && !track.id.startsWith("fb")) {
-      enriched.push(track);
-      continue;
-    }
-
-    try {
-      const resolved = await lookupSwipeTrack(track.name, track.artist, track.genres);
-      if (resolved) {
-        enriched.push({
-          ...track,
-          ...resolved,
-          genres: track.genres.length ? track.genres : resolved.genres,
-          energy: track.energy ?? resolved.energy,
-          valence: track.valence ?? resolved.valence,
-          releaseYear: track.releaseYear ?? resolved.releaseYear,
-          popularity: track.popularity ?? resolved.popularity,
-        });
-        continue;
-      }
-    } catch (error) {
-      console.warn("Swipe track enrichment failed:", track.name, error);
-    }
-
-    enriched.push(track);
-  }
-
-  return prioritizePlayableTracks(enriched);
+  const { enrichSwipeTracksWithPreviews } = await import("./preview-resolver");
+  return enrichSwipeTracksWithPreviews(tracks);
 }
 
 export function prioritizePlayableTracks(tracks: SwipeTrack[]) {
@@ -874,6 +889,8 @@ export async function fetchSpotifyRecommendations(options: {
   const mapped: SwipeTrack[] = [];
 
   for (const track of result.tracks) {
+    if (!track.preview_url) continue;
+
     const artistId = track.artists[0]?.id;
     let genres = ["pop"];
 

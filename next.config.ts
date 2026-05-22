@@ -13,6 +13,16 @@ const nextConfig: NextConfig = {
         hostname: "i.scdn.co",
         pathname: "/**",
       },
+      {
+        protocol: "https",
+        hostname: "e-cdns-images.dzcdn.net",
+        pathname: "/**",
+      },
+      {
+        protocol: "https",
+        hostname: "cdn-images.dzcdn.net",
+        pathname: "/**",
+      },
     ],
   },
 };

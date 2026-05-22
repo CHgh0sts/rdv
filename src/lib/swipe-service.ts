@@ -5,10 +5,13 @@ import {
   type SwipeTrack,
 } from "./swipe-tracks";
 import {
-  enrichSwipeTracks,
+  enrichSwipeTracksWithPreviews,
+  fetchPreviewDiscoveryTracks,
+  hasPlayablePreview,
+} from "./preview-resolver";
+import {
   fetchArtistGenres,
   fetchSpotifyRecommendations,
-  prioritizePlayableTracks,
 } from "./spotify";
 
 const SPOTIFY_GENRE_MAP: Record<string, string> = {
@@ -35,6 +38,10 @@ const SPOTIFY_GENRE_MAP: Record<string, string> = {
 
 function toSpotifyGenre(id: string) {
   return SPOTIFY_GENRE_MAP[id] ?? "pop";
+}
+
+function trackKey(track: SwipeTrack) {
+  return `${track.name.toLowerCase()}::${track.artist.toLowerCase()}`;
 }
 
 function genreAffinity(track: SwipeTrack, likes: SwipeTrack[], dislikes: SwipeTrack[]) {
@@ -65,7 +72,7 @@ function pickFallbackTracks(
   const seeds = DISCOVERY_GENRE_SEEDS[Math.min(phase, DISCOVERY_GENRE_SEEDS.length - 1)];
   const pool = FALLBACK_TRACKS.filter((t) => !seenIds.has(t.id));
 
-  const ranked = pool
+  return pool
     .map((track) => ({
       track,
       score:
@@ -75,9 +82,9 @@ function pickFallbackTracks(
             : 1 + Math.random()
           : genreAffinity(track, likes, dislikes),
     }))
-    .sort((a, b) => b.score - a.score);
-
-  return ranked.slice(0, count).map((r) => r.track);
+    .sort((a, b) => b.score - a.score)
+    .slice(0, count * 2)
+    .map((r) => r.track);
 }
 
 function filterCandidates(
@@ -87,6 +94,7 @@ function filterCandidates(
 ) {
   return tracks.filter(
     (track) =>
+      hasPlayablePreview(track) &&
       !seen.has(track.id) &&
       !dislikes.some(
         (d) => d.artist.toLowerCase() === track.artist.toLowerCase(),
@@ -122,7 +130,7 @@ async function loadSpotifyBatch(options: {
       .slice(0, 2) as string[];
 
     const trackSeeds = likes
-      .filter((t) => !t.id.startsWith("fb"))
+      .filter((t) => !t.id.startsWith("fb") && !t.id.startsWith("dz-"))
       .map((t) => t.id)
       .slice(0, 2);
 
@@ -133,7 +141,7 @@ async function loadSpotifyBatch(options: {
           genreCounts.set(g, (genreCounts.get(g) ?? 0) + 1);
         }
       } catch {
-        // ignore artist genre lookup failures
+        // ignore
       }
     }
 
@@ -148,7 +156,7 @@ async function loadSpotifyBatch(options: {
       trackSeeds,
       targetEnergy: avgEnergy,
       targetValence: avgValence,
-      limit: count + seen.size + 6,
+      limit: count + seen.size + 12,
     });
 
     return filterCandidates(spotifyTracks, seen, dislikes);
@@ -157,7 +165,7 @@ async function loadSpotifyBatch(options: {
   const seeds = DISCOVERY_GENRE_SEEDS[Math.min(phase, DISCOVERY_GENRE_SEEDS.length - 1)];
   const spotifyTracks = await fetchSpotifyRecommendations({
     genreSeeds: seeds.slice(0, 3).map(toSpotifyGenre),
-    limit: count + seen.size + 6,
+    limit: count + seen.size + 12,
   });
 
   return filterCandidates(spotifyTracks, seen, dislikes);
@@ -171,8 +179,17 @@ export async function getAdaptiveSwipeTracks(options: {
 }): Promise<SwipeTrack[]> {
   const count = options.count ?? 8;
   const seen = new Set(options.seenIds);
+  const seenKeys = new Set(
+    [...options.likes, ...options.dislikes].map(trackKey),
+  );
   const { likes, dislikes } = options;
   const phase = Math.floor(seen.size / 9);
+  const targetGenres =
+    likes.length > 0
+      ? [...new Set(likes.flatMap((t) => t.genres))].slice(0, 3)
+      : DISCOVERY_GENRE_SEEDS[Math.min(phase, DISCOVERY_GENRE_SEEDS.length - 1)];
+
+  const collected: SwipeTrack[] = [];
 
   try {
     const spotifyCandidates = await loadSpotifyBatch({
@@ -182,16 +199,34 @@ export async function getAdaptiveSwipeTracks(options: {
       count,
       phase,
     });
-
-    const playableFirst = prioritizePlayableTracks(spotifyCandidates);
-    if (playableFirst.length >= Math.min(3, count)) {
-      const picked = playableFirst.slice(0, count);
-      return enrichSwipeTracks(picked);
-    }
+    collected.push(...spotifyCandidates);
   } catch (error) {
     console.warn("Spotify recommendations fallback:", error);
   }
 
-  const fallback = pickFallbackTracks(seen, likes, dislikes, count, phase);
-  return enrichSwipeTracks(fallback);
+  if (collected.length < count) {
+    const fallbackCandidates = pickFallbackTracks(seen, likes, dislikes, count, phase);
+    const enrichedFallback = await enrichSwipeTracksWithPreviews(fallbackCandidates);
+    for (const track of enrichedFallback) {
+      if (collected.length >= count) break;
+      if (seen.has(track.id) || seenKeys.has(trackKey(track))) continue;
+      seen.add(track.id);
+      seenKeys.add(trackKey(track));
+      collected.push(track);
+    }
+  }
+
+  if (collected.length < count) {
+    const discovered = await fetchPreviewDiscoveryTracks({
+      count: count - collected.length,
+      seenIds: seen,
+      seenKeys,
+      genres: [...targetGenres],
+    });
+    collected.push(...discovered);
+  }
+
+  return collected
+    .filter(hasPlayablePreview)
+    .slice(0, count);
 }
