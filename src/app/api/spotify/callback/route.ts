@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getAppUrl } from "@/lib/app-url";
 import {
   exchangeCodeForTokens,
   verifyOAuthState,
 } from "@/lib/spotify";
 
 export async function GET(request: NextRequest) {
-  const base = process.env.NEXT_PUBLIC_APP_URL ?? request.nextUrl.origin;
+  const base = getAppUrl(request);
   const code = request.nextUrl.searchParams.get("code");
   const state = request.nextUrl.searchParams.get("state");
   const error = request.nextUrl.searchParams.get("error");
@@ -30,7 +31,7 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    await exchangeCodeForTokens(code);
+    await exchangeCodeForTokens(code, request);
     return NextResponse.redirect(new URL("/admin?spotify=connected", base));
   } catch (err) {
     const message =

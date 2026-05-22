@@ -1,4 +1,6 @@
 import { cookies } from "next/headers";
+import type { NextRequest } from "next/server";
+import { getSpotifyRedirectUri } from "@/lib/app-url";
 
 const SPOTIFY_AUTH_URL = "https://accounts.spotify.com/authorize";
 const SPOTIFY_TOKEN_URL = "https://accounts.spotify.com/api/token";
@@ -34,9 +36,8 @@ type SpotifyUser = {
   display_name: string | null;
 };
 
-function getRedirectUri() {
-  const base = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
-  return process.env.SPOTIFY_REDIRECT_URI ?? `${base}/api/spotify/callback`;
+function getRedirectUri(request?: NextRequest) {
+  return getSpotifyRedirectUri(request);
 }
 
 function getCredentials() {
@@ -54,12 +55,12 @@ function authHeader(clientId: string, clientSecret: string) {
   return `Basic ${Buffer.from(`${clientId}:${clientSecret}`).toString("base64")}`;
 }
 
-export function buildSpotifyAuthUrl(state: string) {
+export function buildSpotifyAuthUrl(state: string, request?: NextRequest) {
   const { clientId } = getCredentials();
   const params = new URLSearchParams({
     client_id: clientId,
     response_type: "code",
-    redirect_uri: getRedirectUri(),
+    redirect_uri: getRedirectUri(request),
     scope: SCOPES,
     state,
     show_dialog: "true",
@@ -85,7 +86,7 @@ export async function verifyOAuthState(state: string) {
   return stored === state;
 }
 
-export async function exchangeCodeForTokens(code: string) {
+export async function exchangeCodeForTokens(code: string, request?: NextRequest) {
   const { clientId, clientSecret } = getCredentials();
   const response = await fetch(SPOTIFY_TOKEN_URL, {
     method: "POST",
@@ -96,7 +97,7 @@ export async function exchangeCodeForTokens(code: string) {
     body: new URLSearchParams({
       grant_type: "authorization_code",
       code,
-      redirect_uri: getRedirectUri(),
+      redirect_uri: getRedirectUri(request),
     }),
   });
 
