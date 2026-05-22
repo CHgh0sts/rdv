@@ -45,8 +45,31 @@ model QuizResponse {
   contextPreferences  ContextPreference[]
   artistPreferences   ArtistPreference[]
   languagePreferences LanguagePreference[]
+  trackSwipes         TrackSwipe[]
 
   @@index([completedAt])
+}
+
+model TrackSwipe {
+  id             String       @id @default(cuid())
+  responseId     String
+  response       QuizResponse @relation(fields: [responseId], references: [id], onDelete: Cascade)
+  spotifyTrackId String
+  trackName      String
+  artistName     String
+  artistId       String?
+  albumArt       String?
+  direction      String
+  genres         String[]
+  popularity     Int?
+  energy         Float?
+  valence        Float?
+  releaseYear    Int?
+  orderIndex     Int
+  createdAt      DateTime     @default(now())
+
+  @@index([responseId])
+  @@index([direction])
 }
 
 model GenrePreference {

@@ -11,9 +11,9 @@ export default function HomePage() {
           Découvrez les goûts musicaux de votre groupe
         </h1>
         <p className="mt-6 max-w-2xl text-lg leading-relaxed text-muted">
-          Un questionnaire complet sur les genres, artistes, ambiances et habitudes
-          d&apos;écoute de chacun. Les réponses alimentent un tableau de bord pour
-          générer une playlist collective qui respecte les préférences de tous.
+          Swipez des morceaux à gauche ou à droite — comme une app de rencontres,
+          mais pour la musique. En ~36 choix, on déduit votre profil et alimente
+          la playlist collective du groupe.
         </p>
 
         <div className="mt-10 flex flex-wrap gap-4">
@@ -58,16 +58,16 @@ export default function HomePage() {
       <section className="mt-20 grid gap-6 sm:grid-cols-3">
         {[
           {
-            title: "10 étapes détaillées",
-            text: "Genres, artistes, époques, ambiances, contextes d'écoute, langues et profil sonore.",
+            title: "Swipe musical",
+            text: "36 morceaux à écouter — gauche « pas mon truc », droite « j'aime ».",
           },
           {
-            title: "Données structurées",
-            text: "Chaque réponse est stockée en base PostgreSQL via Prisma pour une agrégation fiable.",
+            title: "Affinage intelligent",
+            text: "Les prochains titres s'adaptent à vos likes pour mieux cerner vos goûts.",
           },
           {
             title: "Playlist collective",
-            text: "Le tableau de bord synthétise les goûts communs et propose des pistes pour votre playlist.",
+            text: "Le tableau de bord synthétise les profils et propose une playlist de groupe.",
           },
         ].map((item) => (
           <article
@@ -85,11 +85,11 @@ export default function HomePage() {
         <ol className="mt-6 space-y-4 text-sm leading-relaxed text-muted">
           <li>
             <span className="mr-2 font-semibold text-brand">1.</span>
-            Chaque participant remplit le quiz (~8 min).
+            Chaque participant swipe ~36 morceaux (~3 min).
           </li>
           <li>
             <span className="mr-2 font-semibold text-brand">2.</span>
-            Les réponses sont enregistrées avec des notes et des préférences pondérées.
+            L&apos;app déduit genres, artistes et ambiances à partir des likes.
           </li>
           <li>
             <span className="mr-2 font-semibold text-brand">3.</span>

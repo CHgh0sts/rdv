@@ -1,6 +1,8 @@
 import { cookies } from "next/headers";
 import type { NextRequest } from "next/server";
 import { getSpotifyRedirectUri } from "@/lib/app-url";
+import type { SwipeTrack } from "./swipe-tracks";
+import { mapSpotifyGenres } from "./swipe-tracks";
 
 const SPOTIFY_AUTH_URL = "https://accounts.spotify.com/authorize";
 const SPOTIFY_TOKEN_URL = "https://accounts.spotify.com/api/token";
@@ -642,4 +644,159 @@ export async function pushTracksToGroupPlaylist(
     addedCount: created.trackCount,
     skippedCount: 0,
   };
+}
+
+type SpotifyAudioFeatures = {
+  energy: number;
+  valence: number;
+};
+
+type SpotifyRecommendationTrack = {
+  id: string;
+  name: string;
+  artists: { id: string; name: string }[];
+  album: {
+    images: { url: string }[];
+    release_date: string;
+  };
+  preview_url: string | null;
+  popularity: number;
+};
+
+function parseReleaseYear(releaseDate: string) {
+  const year = Number.parseInt(releaseDate.slice(0, 4), 10);
+  return Number.isFinite(year) ? year : undefined;
+}
+
+async function fetchAudioFeatures(
+  token: string,
+  trackIds: string[],
+): Promise<Map<string, SpotifyAudioFeatures>> {
+  const map = new Map<string, SpotifyAudioFeatures>();
+  if (trackIds.length === 0) return map;
+
+  for (let i = 0; i < trackIds.length; i += 100) {
+    const chunk = trackIds.slice(i, i + 100);
+    const result = await spotifyFetch<{
+      audio_features: (SpotifyAudioFeatures & { id: string | null })[];
+    }>(`/audio-features?ids=${chunk.join(",")}`, token);
+
+    for (const feature of result.audio_features) {
+      if (feature?.id) {
+        map.set(feature.id, {
+          energy: feature.energy,
+          valence: feature.valence,
+        });
+      }
+    }
+  }
+
+  return map;
+}
+
+function mapRecommendationTrack(
+  track: SpotifyRecommendationTrack,
+  features?: SpotifyAudioFeatures,
+  genres: string[] = ["pop"],
+): SwipeTrack {
+  return {
+    id: track.id,
+    name: track.name,
+    artist: track.artists.map((a) => a.name).join(", "),
+    artistId: track.artists[0]?.id,
+    albumArt: track.album.images[0]?.url,
+    previewUrl: track.preview_url,
+    genres,
+    popularity: track.popularity,
+    releaseYear: parseReleaseYear(track.album.release_date),
+    energy: features?.energy,
+    valence: features?.valence,
+  };
+}
+
+export async function fetchArtistGenres(artistId: string): Promise<string[]> {
+  const token = await getClientCredentialsToken();
+  const artist = await spotifyFetch<{ genres: string[] }>(
+    `/artists/${artistId}`,
+    token,
+  );
+  return artist.genres;
+}
+
+export async function fetchSpotifyRecommendations(options: {
+  genreSeeds?: string[];
+  artistSeeds?: string[];
+  trackSeeds?: string[];
+  targetEnergy?: number;
+  targetValence?: number;
+  limit?: number;
+}): Promise<SwipeTrack[]> {
+  const token = await getClientCredentialsToken();
+  const params = new URLSearchParams();
+  params.set("limit", String(options.limit ?? 20));
+  params.set("market", "FR");
+
+  let seedCount = 0;
+  for (const genre of options.genreSeeds ?? []) {
+    if (seedCount >= 5) break;
+    params.append("seed_genres", genre);
+    seedCount++;
+  }
+  for (const artist of options.artistSeeds ?? []) {
+    if (seedCount >= 5) break;
+    params.append("seed_artists", artist);
+    seedCount++;
+  }
+  for (const track of options.trackSeeds ?? []) {
+    if (seedCount >= 5) break;
+    params.append("seed_tracks", track);
+    seedCount++;
+  }
+
+  if (seedCount === 0) {
+    params.append("seed_genres", "pop");
+    params.append("seed_genres", "rock");
+  }
+  if (options.targetEnergy !== undefined) {
+    params.set("target_energy", String(options.targetEnergy));
+  }
+  if (options.targetValence !== undefined) {
+    params.set("target_valence", String(options.targetValence));
+  }
+
+  const result = await spotifyFetch<{
+    tracks: SpotifyRecommendationTrack[];
+  }>(`/recommendations?${params.toString()}`, token);
+
+  const trackIds = result.tracks.map((t) => t.id);
+  const features = await fetchAudioFeatures(token, trackIds);
+
+  const artistGenreCache = new Map<string, string[]>();
+  const mapped: SwipeTrack[] = [];
+
+  for (const track of result.tracks) {
+    const artistId = track.artists[0]?.id;
+    let genres = ["pop"];
+
+    if (artistId) {
+      if (!artistGenreCache.has(artistId)) {
+        try {
+          const spotifyGenres = await fetchArtistGenres(artistId);
+          artistGenreCache.set(
+            artistId,
+            mapSpotifyGenres(spotifyGenres.length ? spotifyGenres : ["pop"]),
+          );
+        } catch {
+          artistGenreCache.set(artistId, ["pop"]);
+        }
+      }
+      genres = artistGenreCache.get(artistId) ?? ["pop"];
+    }
+
+    mapped.push(
+      mapRecommendationTrack(track, features.get(track.id), genres),
+    );
+  }
+
+  return mapped;
 }
