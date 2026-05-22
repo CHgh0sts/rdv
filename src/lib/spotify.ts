@@ -723,6 +723,105 @@ export async function fetchArtistGenres(artistId: string): Promise<string[]> {
   return artist.genres;
 }
 
+type SpotifySearchTrack = SpotifyRecommendationTrack;
+
+function normalizeForMatch(value: string) {
+  return value
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim();
+}
+
+export async function lookupSwipeTrack(
+  name: string,
+  artist: string,
+  genres: string[] = ["pop"],
+): Promise<SwipeTrack | null> {
+  const token = await getClientCredentialsToken();
+  const primaryArtist = artist.split(",")[0]?.trim() ?? artist;
+  const params = new URLSearchParams({
+    q: `track:${name} artist:${primaryArtist}`,
+    type: "track",
+    limit: "8",
+    market: "FR",
+  });
+
+  const result = await spotifyFetch<{
+    tracks: { items: SpotifySearchTrack[] };
+  }>(`/search?${params.toString()}`, token);
+
+  const targetName = normalizeForMatch(name);
+  const targetArtist = normalizeForMatch(primaryArtist);
+
+  const ranked = result.tracks.items
+    .map((track) => {
+      const trackName = normalizeForMatch(track.name);
+      const artistNames = track.artists.map((a) => normalizeForMatch(a.name));
+      let score = 0;
+      if (trackName === targetName) score += 5;
+      else if (trackName.includes(targetName) || targetName.includes(trackName)) {
+        score += 3;
+      }
+      if (artistNames.some((a) => a === targetArtist || a.includes(targetArtist))) {
+        score += 4;
+      }
+      if (track.preview_url) score += 2;
+      return { track, score };
+    })
+    .sort((a, b) => b.score - a.score);
+
+  const match =
+    ranked.find((item) => item.score >= 4)?.track ??
+    ranked.find((item) => item.track.preview_url)?.track ??
+    ranked[0]?.track;
+
+  if (!match) return null;
+
+  return mapRecommendationTrack(match, undefined, genres);
+}
+
+export async function enrichSwipeTracks(tracks: SwipeTrack[]): Promise<SwipeTrack[]> {
+  const enriched: SwipeTrack[] = [];
+
+  for (const track of tracks) {
+    if (track.previewUrl && track.albumArt && !track.id.startsWith("fb")) {
+      enriched.push(track);
+      continue;
+    }
+
+    try {
+      const resolved = await lookupSwipeTrack(track.name, track.artist, track.genres);
+      if (resolved) {
+        enriched.push({
+          ...track,
+          ...resolved,
+          genres: track.genres.length ? track.genres : resolved.genres,
+          energy: track.energy ?? resolved.energy,
+          valence: track.valence ?? resolved.valence,
+          releaseYear: track.releaseYear ?? resolved.releaseYear,
+          popularity: track.popularity ?? resolved.popularity,
+        });
+        continue;
+      }
+    } catch (error) {
+      console.warn("Swipe track enrichment failed:", track.name, error);
+    }
+
+    enriched.push(track);
+  }
+
+  return prioritizePlayableTracks(enriched);
+}
+
+export function prioritizePlayableTracks(tracks: SwipeTrack[]) {
+  return [...tracks].sort((a, b) => playableScore(b) - playableScore(a));
+}
+
+function playableScore(track: SwipeTrack) {
+  return (track.previewUrl ? 4 : 0) + (track.albumArt ? 2 : 0);
+}
+
 export async function fetchSpotifyRecommendations(options: {
   genreSeeds?: string[];
   artistSeeds?: string[];
@@ -798,5 +897,5 @@ export async function fetchSpotifyRecommendations(options: {
     );
   }
 
-  return mapped;
+  return prioritizePlayableTracks(mapped);
 }

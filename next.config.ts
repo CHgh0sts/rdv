@@ -8,6 +8,11 @@ const nextConfig: NextConfig = {
         hostname: "rendez-vous.social",
         pathname: "/app/**",
       },
+      {
+        protocol: "https",
+        hostname: "i.scdn.co",
+        pathname: "/**",
+      },
     ],
   },
 };

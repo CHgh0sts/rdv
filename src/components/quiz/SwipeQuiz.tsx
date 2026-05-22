@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/Button";
@@ -26,8 +27,12 @@ export function SwipeQuiz() {
   const [exitDirection, setExitDirection] = useState<"like" | "dislike" | null>(
     null,
   );
+  const [audioReady, setAudioReady] = useState(false);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [audioBlocked, setAudioBlocked] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const loadingRef = useRef(false);
+  const audioUnlockedRef = useRef(false);
 
   const current = queue[0];
   const swipeCount = decisions.length;
@@ -84,23 +89,69 @@ export function SwipeQuiz() {
     }
   }, [phase, queue.length, done, loadingTracks, loadMoreTracks]);
 
-  useEffect(() => {
-    if (!current?.previewUrl) {
-      audioRef.current?.pause();
+  const stopPreview = useCallback(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    audio.pause();
+    audio.currentTime = 0;
+    audioRef.current = null;
+    setIsPlaying(false);
+  }, []);
+
+  const playPreview = useCallback(async () => {
+    stopPreview();
+
+    if (!current?.previewUrl || !audioUnlockedRef.current) {
+      setAudioBlocked(!audioUnlockedRef.current && !!current?.previewUrl);
+      setIsPlaying(false);
       return;
     }
 
     const audio = new Audio(current.previewUrl);
-    audio.volume = 0.6;
-    audio.play().catch(() => undefined);
+    audio.volume = 0.85;
+    audio.loop = true;
     audioRef.current = audio;
 
-    return () => {
-      audio.pause();
-    };
-  }, [current?.id, current?.previewUrl]);
+    audio.addEventListener("playing", () => {
+      setIsPlaying(true);
+      setAudioBlocked(false);
+    });
+    audio.addEventListener("pause", () => setIsPlaying(false));
 
-  function startQuiz() {
+    try {
+      await audio.play();
+      setAudioReady(true);
+      setAudioBlocked(false);
+    } catch {
+      setAudioBlocked(true);
+      setIsPlaying(false);
+    }
+  }, [current?.previewUrl, stopPreview]);
+
+  useEffect(() => {
+    if (phase !== "swipe" || !current) return;
+    playPreview();
+    return () => stopPreview();
+  }, [phase, current?.id, current?.previewUrl, playPreview, stopPreview]);
+
+  async function unlockAudio() {
+    audioUnlockedRef.current = true;
+    setAudioReady(true);
+    setAudioBlocked(false);
+
+    try {
+      const silent = new Audio(
+        "data:audio/mp3;base64,SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjU4Ljc2LjEwMAAAAAAAAAAAAAAA//tQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWGluZwAAAA8AAAACAAABhgC7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7//////////////////////////////////////////////////////////////////8AAAAATGF2YzU4LjEzAAAAAAAAAAAAAAAAJAAAAAAAAAAAAYYoRwmHAAAAAAD/+1DEAAAHAAGf9AAAIAAANIAAAAQAAA0gAAAAAA==",
+      );
+      silent.volume = 0.01;
+      await silent.play();
+      silent.pause();
+    } catch {
+      // ignore — la lecture du morceau tentera quand même
+    }
+  }
+
+  async function startQuiz() {
     if (!name.trim()) {
       setError("Indiquez votre prénom ou pseudo.");
       return;
@@ -110,6 +161,7 @@ export function SwipeQuiz() {
       return;
     }
     setError(null);
+    await unlockAudio();
     setPhase("swipe");
     setQueue([]);
     setDecisions([]);
@@ -119,6 +171,7 @@ export function SwipeQuiz() {
   function commitSwipe(direction: "like" | "dislike") {
     if (!current || exitDirection) return;
 
+    stopPreview();
     setExitDirection(direction);
     setDragX(direction === "like" ? 420 : -420);
 
@@ -175,8 +228,8 @@ export function SwipeQuiz() {
           Votre profil musical en {SWIPE_TARGET} swipes
         </h1>
         <p className="mt-3 text-muted">
-          Écoutez, swipez, on affine les morceaux au fil de vos choix pour
-          déduire vos goûts — comme sur une app de rencontres, mais pour la musique.
+          Écoutez l&apos;extrait automatiquement, regardez la pochette, puis swipez
+          pour affiner vos goûts — comme une app de rencontres, mais pour la musique.
         </p>
 
         <div className="mt-8 space-y-4">
@@ -244,13 +297,16 @@ export function SwipeQuiz() {
       <div className="relative mx-auto mt-8 aspect-[3/4] max-h-[520px] w-full">
         {current ? (
           <article
-            className={`swipe-card absolute inset-0 overflow-hidden rounded-3xl border border-border bg-surface shadow-xl ${
+            className={`swipe-card absolute inset-0 flex flex-col overflow-hidden rounded-3xl border border-border bg-surface shadow-xl ${
               exitDirection ? "swipe-card-exit" : ""
             }`}
             style={{
               transform: `translateX(${dragX}px) rotate(${rotation}deg)`,
             }}
             onPointerDown={(e) => {
+              if (audioBlocked) {
+                void playPreview();
+              }
               const startX = e.clientX;
               const onMove = (ev: PointerEvent) => setDragX(ev.clientX - startX);
               const onUp = (ev: PointerEvent) => {
@@ -265,41 +321,68 @@ export function SwipeQuiz() {
               window.addEventListener("pointerup", onUp);
             }}
           >
-            <div
-              className="absolute inset-0 bg-gradient-to-b from-brand/20 to-brand/80"
-              style={
-                current.albumArt
-                  ? {
-                      backgroundImage: `url(${current.albumArt})`,
-                      backgroundSize: "cover",
-                      backgroundPosition: "center",
-                    }
-                  : undefined
-              }
-            />
-            <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
+            <div className="relative flex-1 bg-brand-muted">
+              {current.albumArt ? (
+                <Image
+                  src={current.albumArt}
+                  alt={`Pochette de ${current.name}`}
+                  fill
+                  priority
+                  sizes="(max-width: 448px) 100vw, 448px"
+                  className="object-cover"
+                />
+              ) : (
+                <div className="flex h-full items-center justify-center bg-gradient-to-br from-brand/30 to-brand/70 text-white/80">
+                  <span className="text-6xl">♪</span>
+                </div>
+              )}
 
-            <div
-              className="absolute left-6 top-6 rounded-lg border-4 border-green-400 px-3 py-1 text-lg font-bold uppercase text-green-400"
-              style={{ opacity: likeOpacity, transform: "rotate(-12deg)" }}
-            >
-              J&apos;aime
-            </div>
-            <div
-              className="absolute right-6 top-6 rounded-lg border-4 border-red-400 px-3 py-1 text-lg font-bold uppercase text-red-400"
-              style={{ opacity: dislikeOpacity, transform: "rotate(12deg)" }}
-            >
-              Nope
+              <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-black/10" />
+
+              <div
+                className="absolute left-6 top-6 rounded-lg border-4 border-green-400 px-3 py-1 text-lg font-bold uppercase text-green-400"
+                style={{ opacity: likeOpacity, transform: "rotate(-12deg)" }}
+              >
+                J&apos;aime
+              </div>
+              <div
+                className="absolute right-6 top-6 rounded-lg border-4 border-red-400 px-3 py-1 text-lg font-bold uppercase text-red-400"
+                style={{ opacity: dislikeOpacity, transform: "rotate(12deg)" }}
+              >
+                Nope
+              </div>
+
+              <div className="absolute left-4 top-4 flex items-center gap-2 rounded-full bg-black/55 px-3 py-1.5 text-xs font-medium text-white backdrop-blur-sm">
+                {current.previewUrl ? (
+                  <>
+                    <span
+                      className={`inline-flex h-2 w-2 rounded-full ${
+                        isPlaying ? "bg-green-400 animate-pulse" : "bg-yellow-300"
+                      }`}
+                    />
+                    {isPlaying
+                      ? "Extrait en cours"
+                      : audioBlocked
+                        ? "Touchez pour lancer l'extrait"
+                        : "Chargement de l'extrait…"}
+                  </>
+                ) : (
+                  <>
+                    <span className="inline-flex h-2 w-2 rounded-full bg-white/50" />
+                    Extrait indisponible
+                  </>
+                )}
+              </div>
             </div>
 
-            <div className="absolute bottom-0 p-6 text-white">
-              <p className="text-sm uppercase tracking-wide text-white/70">
+            <div className="bg-black px-6 py-5 text-white">
+              <p className="text-xs uppercase tracking-wide text-white/60">
                 {current.genres.slice(0, 2).join(" · ")}
               </p>
               <h2 className="mt-1 text-2xl font-semibold leading-tight">
                 {current.name}
               </h2>
-              <p className="mt-1 text-lg text-white/85">{current.artist}</p>
+              <p className="mt-1 text-base text-white/85">{current.artist}</p>
             </div>
           </article>
         ) : (
@@ -333,6 +416,7 @@ export function SwipeQuiz() {
       <p className="mt-4 text-center text-xs text-muted">
         Glissez la carte ou utilisez les boutons · {likes.length} likes ·{" "}
         {dislikes.length} pass
+        {audioReady && current?.previewUrl ? " · extrait auto activé" : ""}
       </p>
 
       {error && <p className="mt-4 text-center text-sm text-brand">{error}</p>}

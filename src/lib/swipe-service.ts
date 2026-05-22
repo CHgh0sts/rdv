@@ -5,8 +5,10 @@ import {
   type SwipeTrack,
 } from "./swipe-tracks";
 import {
-  fetchSpotifyRecommendations,
+  enrichSwipeTracks,
   fetchArtistGenres,
+  fetchSpotifyRecommendations,
+  prioritizePlayableTracks,
 } from "./spotify";
 
 const SPOTIFY_GENRE_MAP: Record<string, string> = {
@@ -78,6 +80,89 @@ function pickFallbackTracks(
   return ranked.slice(0, count).map((r) => r.track);
 }
 
+function filterCandidates(
+  tracks: SwipeTrack[],
+  seen: Set<string>,
+  dislikes: SwipeTrack[],
+) {
+  return tracks.filter(
+    (track) =>
+      !seen.has(track.id) &&
+      !dislikes.some(
+        (d) => d.artist.toLowerCase() === track.artist.toLowerCase(),
+      ),
+  );
+}
+
+async function loadSpotifyBatch(options: {
+  seen: Set<string>;
+  likes: SwipeTrack[];
+  dislikes: SwipeTrack[];
+  count: number;
+  phase: number;
+}) {
+  const { seen, likes, dislikes, count, phase } = options;
+
+  if (likes.length >= 2) {
+    const genreCounts = new Map<string, number>();
+    for (const track of likes) {
+      for (const g of track.genres) {
+        genreCounts.set(g, (genreCounts.get(g) ?? 0) + 1);
+      }
+    }
+
+    const topGenres = [...genreCounts.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 2)
+      .map(([g]) => toSpotifyGenre(g));
+
+    const artistSeeds = likes
+      .map((t) => t.artistId)
+      .filter(Boolean)
+      .slice(0, 2) as string[];
+
+    const trackSeeds = likes
+      .filter((t) => !t.id.startsWith("fb"))
+      .map((t) => t.id)
+      .slice(0, 2);
+
+    for (const artistId of artistSeeds) {
+      try {
+        const genres = await fetchArtistGenres(artistId);
+        for (const g of mapSpotifyGenres(genres)) {
+          genreCounts.set(g, (genreCounts.get(g) ?? 0) + 1);
+        }
+      } catch {
+        // ignore artist genre lookup failures
+      }
+    }
+
+    const avgEnergy =
+      likes.reduce((sum, t) => sum + (t.energy ?? 0.5), 0) / likes.length;
+    const avgValence =
+      likes.reduce((sum, t) => sum + (t.valence ?? 0.5), 0) / likes.length;
+
+    const spotifyTracks = await fetchSpotifyRecommendations({
+      genreSeeds: topGenres,
+      artistSeeds,
+      trackSeeds,
+      targetEnergy: avgEnergy,
+      targetValence: avgValence,
+      limit: count + seen.size + 6,
+    });
+
+    return filterCandidates(spotifyTracks, seen, dislikes);
+  }
+
+  const seeds = DISCOVERY_GENRE_SEEDS[Math.min(phase, DISCOVERY_GENRE_SEEDS.length - 1)];
+  const spotifyTracks = await fetchSpotifyRecommendations({
+    genreSeeds: seeds.slice(0, 3).map(toSpotifyGenre),
+    limit: count + seen.size + 6,
+  });
+
+  return filterCandidates(spotifyTracks, seen, dislikes);
+}
+
 export async function getAdaptiveSwipeTracks(options: {
   seenIds: string[];
   likes: SwipeTrack[];
@@ -89,66 +174,24 @@ export async function getAdaptiveSwipeTracks(options: {
   const { likes, dislikes } = options;
   const phase = Math.floor(seen.size / 9);
 
-  if (likes.length >= 2) {
-    try {
-      const genreCounts = new Map<string, number>();
-      for (const track of likes) {
-        for (const g of track.genres) {
-          genreCounts.set(g, (genreCounts.get(g) ?? 0) + 1);
-        }
-      }
+  try {
+    const spotifyCandidates = await loadSpotifyBatch({
+      seen,
+      likes,
+      dislikes,
+      count,
+      phase,
+    });
 
-      const topGenres = [...genreCounts.entries()]
-        .sort((a, b) => b[1] - a[1])
-        .slice(0, 2)
-        .map(([g]) => toSpotifyGenre(g));
-
-      const artistSeeds = likes
-        .map((t) => t.artistId)
-        .filter(Boolean)
-        .slice(0, 2) as string[];
-
-      const trackSeeds = likes
-        .filter((t) => !t.id.startsWith("fb"))
-        .map((t) => t.id)
-        .slice(0, 2);
-
-      if (artistSeeds.length > 0) {
-        for (const artistId of artistSeeds) {
-          const genres = await fetchArtistGenres(artistId);
-          for (const g of mapSpotifyGenres(genres)) {
-            genreCounts.set(g, (genreCounts.get(g) ?? 0) + 1);
-          }
-        }
-      }
-
-      const avgEnergy =
-        likes.reduce((sum, t) => sum + (t.energy ?? 0.5), 0) / likes.length;
-      const avgValence =
-        likes.reduce((sum, t) => sum + (t.valence ?? 0.5), 0) / likes.length;
-
-      const spotifyTracks = await fetchSpotifyRecommendations({
-        genreSeeds: topGenres,
-        artistSeeds,
-        trackSeeds,
-        targetEnergy: avgEnergy,
-        targetValence: avgValence,
-        limit: count + seen.size,
-      });
-
-      const filtered = spotifyTracks.filter(
-        (t) =>
-          !seen.has(t.id) &&
-          !dislikes.some((d) => d.artist.toLowerCase() === t.artist.toLowerCase()),
-      );
-
-      if (filtered.length >= Math.min(3, count)) {
-        return filtered.slice(0, count);
-      }
-    } catch (error) {
-      console.warn("Spotify recommendations fallback:", error);
+    const playableFirst = prioritizePlayableTracks(spotifyCandidates);
+    if (playableFirst.length >= Math.min(3, count)) {
+      const picked = playableFirst.slice(0, count);
+      return enrichSwipeTracks(picked);
     }
+  } catch (error) {
+    console.warn("Spotify recommendations fallback:", error);
   }
 
-  return pickFallbackTracks(seen, likes, dislikes, count, phase);
+  const fallback = pickFallbackTracks(seen, likes, dislikes, count, phase);
+  return enrichSwipeTracks(fallback);
 }
