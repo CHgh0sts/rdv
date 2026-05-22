@@ -11,6 +11,7 @@ const SCOPES = [
   "playlist-modify-private",
   "playlist-read-private",
   "user-read-private",
+  "user-read-email",
 ].join(" ");
 
 const COOKIE_ACCESS = "spotify_access_token";
@@ -35,6 +36,8 @@ type SpotifyTrack = {
 type SpotifyUser = {
   id: string;
   display_name: string | null;
+  images?: { url: string; height: number | null; width: number | null }[];
+  email?: string;
 };
 
 function getRedirectUri(request?: NextRequest) {
@@ -191,6 +194,16 @@ export async function getSpotifyAccessToken(): Promise<string | null> {
   return null;
 }
 
+export function formatSpotifyApiError(message: string): string {
+  if (message.includes("403") && message.includes("not be registered")) {
+    return "Compte non autorisé : ajoutez votre e-mail Spotify dans le Developer Dashboard (User Management), puis reconnectez-vous.";
+  }
+  if (message.includes("403")) {
+    return "Accès Spotify refusé (403). Vérifiez les autorisations de l'app sur developer.spotify.com.";
+  }
+  return message.replace(/^Spotify API: \d+ /, "");
+}
+
 export async function getSpotifySessionStatus() {
   const jar = await cookies();
   const refresh = jar.get(COOKIE_REFRESH)?.value;
@@ -206,14 +219,29 @@ export async function getSpotifySessionStatus() {
   }
 
   try {
-    const user = await spotifyFetch<SpotifyUser>("/me", token);
+    const user = await spotifyFetch<SpotifyUser>(
+      "/me?fields=id,display_name,images,email",
+      token,
+    );
     return {
       connected: true as const,
       displayName: user.display_name ?? user.id,
+      avatarUrl: user.images?.[0]?.url ?? null,
+      spotifyId: user.id,
+      email: user.email ?? null,
     };
-  } catch {
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Erreur Spotify inconnue.";
     if (refresh || access) {
-      return { connected: true as const, displayName: null };
+      return {
+        connected: true as const,
+        displayName: null,
+        avatarUrl: null,
+        spotifyId: null,
+        email: null,
+        apiError: formatSpotifyApiError(message),
+      };
     }
     return { connected: false as const };
   }

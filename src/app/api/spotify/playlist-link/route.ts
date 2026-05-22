@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { parseSpotifyPlaylistId } from "@/lib/spotify-utils";
 import {
+  formatSpotifyApiError,
   getPlaylistById,
   getSpotifyAccessToken,
   getUserPlaylists,
@@ -90,13 +91,10 @@ export async function POST(request: NextRequest) {
     });
   } catch (error) {
     console.error("Playlist link POST error:", error);
+    const raw =
+      error instanceof Error ? error.message : "Impossible de lier cette playlist.";
     return NextResponse.json(
-      {
-        error:
-          error instanceof Error
-            ? error.message
-            : "Impossible de lier cette playlist.",
-      },
+      { error: formatSpotifyApiError(raw) },
       { status: 500 },
     );
   }

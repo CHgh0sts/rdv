@@ -67,6 +67,10 @@ export default function AdminPage() {
   const [copiedLink, setCopiedLink] = useState(false);
   const [spotifyConnected, setSpotifyConnected] = useState(false);
   const [spotifyName, setSpotifyName] = useState<string | null>(null);
+  const [spotifyAvatar, setSpotifyAvatar] = useState<string | null>(null);
+  const [spotifyId, setSpotifyId] = useState<string | null>(null);
+  const [spotifyEmail, setSpotifyEmail] = useState<string | null>(null);
+  const [spotifyApiError, setSpotifyApiError] = useState<string | null>(null);
   const [spotifyLoading, setSpotifyLoading] = useState(true);
   const [creatingPlaylist, setCreatingPlaylist] = useState(false);
   const [spotifyPlaylistUrl, setSpotifyPlaylistUrl] = useState<string | null>(null);
@@ -97,6 +101,10 @@ export default function AdminPage() {
       .then((json) => {
         setSpotifyConnected(Boolean(json.connected));
         setSpotifyName(json.displayName ?? null);
+        setSpotifyAvatar(json.avatarUrl ?? null);
+        setSpotifyId(json.spotifyId ?? null);
+        setSpotifyEmail(json.email ?? null);
+        setSpotifyApiError(json.apiError ?? null);
         return Boolean(json.connected);
       })
       .finally(() => setSpotifyLoading(false));
@@ -194,6 +202,10 @@ export default function AdminPage() {
     await fetch("/api/spotify/logout", { method: "POST" });
     setSpotifyConnected(false);
     setSpotifyName(null);
+    setSpotifyAvatar(null);
+    setSpotifyId(null);
+    setSpotifyEmail(null);
+    setSpotifyApiError(null);
     setSpotifyPlaylistUrl(null);
     setSpotifyTracks([]);
     setSpotifyMessage("Compte Spotify déconnecté.");
@@ -290,16 +302,52 @@ export default function AdminPage() {
               Étape 1 · Spotify
             </p>
             <h2 className="text-xl font-semibold">Connecter votre compte</h2>
-            {!spotifyLoading && spotifyConnected ? (
-              <p className="text-sm text-brand">
-                Connecté{spotifyName ? ` en tant que ${spotifyName}` : ""}.
-              </p>
-            ) : (
+
+            {!spotifyLoading && spotifyConnected && (
+              <div className="mt-3 flex items-center gap-4 rounded-xl border border-border bg-surface p-4">
+                {spotifyAvatar ? (
+                  <img
+                    src={spotifyAvatar}
+                    alt={spotifyName ?? "Profil Spotify"}
+                    className="h-14 w-14 rounded-full object-cover ring-2 ring-brand/20"
+                  />
+                ) : (
+                  <div className="flex h-14 w-14 items-center justify-center rounded-full bg-brand-muted text-lg font-semibold text-brand">
+                    {spotifyName?.charAt(0)?.toUpperCase() ?? "?"}
+                  </div>
+                )}
+                <div>
+                  <p className="font-semibold">
+                    {spotifyName ?? "Compte Spotify connecté"}
+                  </p>
+                  {spotifyEmail && (
+                    <p className="text-sm text-muted">{spotifyEmail}</p>
+                  )}
+                  {spotifyId && (
+                    <p className="text-xs text-muted">ID : {spotifyId}</p>
+                  )}
+                  {!spotifyName && !spotifyApiError && (
+                    <p className="text-sm text-muted">
+                      Profil en cours de chargement…
+                    </p>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {!spotifyLoading && !spotifyConnected && (
               <p className="text-sm text-muted">
                 Connectez-vous pour lier une playlist et y ajouter des morceaux.
               </p>
             )}
-            {spotifyMessage && (
+
+            {spotifyApiError && (
+              <p className="rounded-xl border border-brand/20 bg-surface px-4 py-3 text-sm text-brand">
+                {spotifyApiError}
+              </p>
+            )}
+
+            {spotifyMessage && !spotifyApiError && (
               <p className="rounded-xl bg-surface px-4 py-2 text-sm text-foreground">
                 {spotifyMessage}
               </p>
